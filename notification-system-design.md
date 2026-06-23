@@ -183,3 +183,59 @@ this make the query to fetch the row index rather than the whole data itself
 ## Result
 
 With indexing and limitization the query will be more accurate even if its a large data
+
+# Stage 4:
+
+## The Problem
+
+Every time a student opens the app, it hits the DB to fetch notifications.
+With 50,000 students doing this at the same time — especially during
+placement season — the DB gets hammered and slows down for everyone.
+
+## Solution: Caching with Redis
+
+Instead of hitting the DB every single time, we cache the notifications
+in Redis after the first fetch. Next time the same student opens the app,
+we serve from cache — DB doesn't get touched at all.
+
+### How it works:
+
+1. Student opens app → check Redis first
+2. If cache hit → return cached notifications instantly
+3. If cache miss → fetch from DB → store in Redis → return to student
+
+## Implementation Idea
+
+1. Student requests their notifications
+2. Check Redis for key `notifications:student:{student_id}`
+3. If found in cache → return immediately, skip DB
+4. If not found:
+   - Query DB with LIMIT 20
+   - "SELECT id, type, message, is_read, created_at
+     FROM notifications
+     WHERE student_id = %s AND is_read = FALSE
+     ORDER BY created_at DESC LIMIT 20"
+   - Return result to student
+5. When new notification arrives for a student:
+   - Invalidate their cache key in Redis
+   - Next request will fetch fresh from DB and re-cache
+
+## Tradeoffs
+
+### Pros:
+
+- DB load drops massively — most requests served from cache
+- Response time goes from ~200ms to ~5ms
+- Scales easily during peak times like placement season
+
+### Cons:
+
+- Slight staleness — student might not see a notification for up to 5 mins
+- Extra infrastructure — need to run and maintain Redis
+- Cache invalidation logic adds complexity
+
+## Is it worth it?
+
+Yes. The staleness tradeoff is acceptable for notifications —
+a student not seeing a notification for 5 minutes is fine.
+The DB relief is massive especially during peak load.
