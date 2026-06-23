@@ -1,15 +1,41 @@
 import httpx
+from datetime import datetime
+from dotenv import load_dotenv
+import os
 
-token = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJNYXBDbGFpbXMiOnsiYXVkIjoiaHR0cDovLzIwLjI0NC41Ni4xNDQvZXZhbHVhdGlvbi1zZXJ2aWNlIiwiZW1haWwiOiJwYXR1cmlraXJhbnRlamEuMjMuY3NlQGFuaXRzLmVkdS5pbiIsImV4cCI6MTc4MjE5NTU2MCwiaWF0IjoxNzgyMTk0NjYwLCJpc3MiOiJBZmZvcmQgTWVkaWNhbCBUZWNobm9sb2dpZXMgUHJpdmF0ZSBMaW1pdGVkIiwianRpIjoiMDFjMDdiYTQtMGY0Ni00ZDViLWE0MjctZjkyZDU4M2E3Y2I4IiwibG9jYWxlIjoiZW4tSU4iLCJuYW1lIjoicGF0dXJpIGtpcmFuIHRlamEiLCJzdWIiOiI2MWE2MzBmYi0xYWEzLTQyNzEtOWI1Mi1kNjBjMGNlOGFkNmIifSwiZW1haWwiOiJwYXR1cmlraXJhbnRlamEuMjMuY3NlQGFuaXRzLmVkdS5pbiIsIm5hbWUiOiJwYXR1cmkga2lyYW4gdGVqYSIsInJvbGxObyI6ImEyMzEyNjUxMDEwNSIsImFjY2Vzc0NvZGUiOiJNVHF4YXIiLCJjbGllbnRJRCI6IjYxYTYzMGZiLTFhYTMtNDI3MS05YjUyLWQ2MGMwY2U4YWQ2YiIsImNsaWVudFNlY3JldCI6InRVcWJwZUtzcGFrd3V3ZFYifQ.Qsn_hvKVcZPkD1dw-RWUQsZg12393vRQjcR8jcZ_mz4"
+load_dotenv()
+
+AUTH_URL = "http://4.224.186.213/evaluation-service/auth"
+LOG_URL = "http://4.224.186.213/evaluation-service/logs"
+
+AUTH_BODY = {
+    "email": os.getenv("EMAIL"),
+    "name": os.getenv("NAME"),
+    "rollNo": os.getenv("ROLL_NO"),
+    "accessCode": os.getenv("ACCESS_CODE"),
+    "clientID": os.getenv("CLIENT_ID"),
+    "clientSecret": os.getenv("CLIENT_SECRET")
+}
+
+token = None
+token_expiry = 0
+
+def get_token():
+    global token, token_expiry
+    res = httpx.post(AUTH_URL, json=AUTH_BODY)
+    data = res.json()
+    token = data["access_token"]
+    token_expiry = data["expires_in"]
+
+def get_header():
+    if token is None or datetime.now().timestamp() >= token_expiry:
+        get_token()
+    return {"Authorization": f"Bearer {token}"}
 
 def log(stack, level, package, message):
-    body = { "stack" : stack, "level" : level, "package" : package , "message" : message}
-    header = {"Authorization": f"Bearer {token}"}
+    body = {"stack": stack, "level": level, "package": package, "message": message}
     try:
-        response = httpx.post("http://4.224.186.213/evaluation-service/logs", json = body, headers = header)
-        print("Status:", response.status_code)
-        print("Response:", response.json())
+        response = httpx.post(LOG_URL, json=body, headers=get_header())
         return response.json()
     except Exception as e:
         print("Error:", e)
-
