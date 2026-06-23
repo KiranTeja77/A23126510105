@@ -135,3 +135,51 @@ CREATE INDEX idx_notifications_created_at ON notifications(created_at DESC);
 
 - **Indexes** — makes filtering much faster an finding data is much easier.
 - **Redis** — fetching data from DB for same queries will burden the DB so redis will be the best option in this scenarios.
+
+# Stage 3
+
+## Original Query
+
+SELECT \* FROM notification
+WHERE studentID = 1042 AND isRead = False
+ORDER BY createdAt DESC;
+
+## Is it Accurate?
+
+i wont say its accurate but its okay but it has some issues like :
+
+- `SELECT *` fetches all columns but we only need what the frontend actually displays
+- No LIMIT — if the data reaches a million rows then the DB will have a burden
+- No indexes — full table scan every time which is time taking
+
+## Why is it Slow?
+
+At 50,000 students and 5,000,000 notifications:
+
+- Full table scan on 5M rows to find studentID = 1042
+- Then filter isRead = False on top of that
+- Then sort everything by createdAt
+- No limit it fetches a large amount of data at once
+
+## Fixed Query
+
+SELECT id, type, message, created_at FROM notifications
+WHERE student_id = 1042 AND is_read = FALSE
+ORDER BY created_at DESC
+LIMIT 20;
+
+## What Changed and Why
+
+- `SELECT *` → only fetch columns we need
+- Added `LIMIT 20` so it never fetch all at once
+
+## Indexes to Add
+
+CREATE INDEX student_unread_index
+ON notifications(student_id, is_read, created_at DESC);
+
+this make the query to fetch the row index rather than the whole data itself
+
+## Result
+
+With indexing and limitization the query will be more accurate even if its a large data
