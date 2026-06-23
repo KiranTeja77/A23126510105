@@ -239,3 +239,71 @@ we serve from cache — DB doesn't get touched at all.
 Yes. The staleness tradeoff is acceptable for notifications —
 a student not seeing a notification for 5 minutes is fine.
 The DB relief is massive especially during peak load.
+
+# Stage 5:
+
+## Original Pseudocode
+
+def notify_all(student_ids: array, message: string):
+
+for student_id in student_ids:
+
+send_email(student_id, message) # calls email API
+
+save_to_db(student_id, message) # DB insert
+
+push_to_app(student_id, message) # push notification
+
+## What's Wrong With This
+
+Honestly this is pretty fragile. A few issues:
+
+- **Sequential processing** — doing everything one by one for 50,000 students
+  is going to take forever. If each student takes 100ms thats 5000 seconds.
+- **No error handling** — if send_email fails for student 500, what happens
+  to students 501-50000? Everything stops.
+- **Email and DB are coupled** — if email API is down, nothing gets saved
+  to DB either. Student never gets notification.
+- **No retry mechanism** — if something fails midway, there's no way to
+  retry just the failed ones
+- **Blocking** — the whole function has to finish before returning,
+  caller is stuck waiting
+
+## Redesigned Algorithm
+
+def notify_all(student_ids: array, message: string):
+
+1. Save all notifications to DB first in bulk
+
+- One bulk insert instead of N individual inserts
+
+- If this fails, nothing was sent yet, safe to retry
+
+2. Push all student_ids into a Message Queue (eg. Redis Queue)
+   - Each student_id becomes a separate job in the queue
+   - Return immediately after queuing — don't wait
+
+3. Background Workers pick up jobs from queue:
+   - Send email to student
+   - Push in-app notification via SSE
+   - If either fails → retry up to 3 times
+   - If still fails → log to failed_notifications table
+
+4. Monitor failed_notifications table
+   - Retry failed ones in next scheduled job
+
+## Why This is Better
+
+- **Bulk DB insert** → one query instead of 50,000
+- **Queue based** → students are processed in parallel by multiple workers
+- **Decoupled** → DB save happens first, email failure doesn't affect DB
+- **Retry logic** → failed emails get retried automatically
+- **Non blocking** → function returns instantly after queuing
+- **Scalable** → add more workers during peak times like placement season
+
+## Should Email and DB Save Happen Together?
+
+No. Save to DB first always. Email is external and can fail for many reasons
+— API down, rate limits, invalid email etc. DB save should never depend on
+email success. Once it's in DB the student will see it in app even if email
+fails.
